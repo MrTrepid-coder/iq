@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Dados gerados
+data/*.csv
+data/*.json
+data/*.jsonl
+data/*.txt
+data/*.png
+data/REPORT.md
+journal.jsonl
+simulation.jsonl
+logs/
+
+# Ambiente
+.env
+credentials*

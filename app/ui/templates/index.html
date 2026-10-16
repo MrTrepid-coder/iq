@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>IQ Analyzer — Análise Técnica e Probabilística (Simulação)</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root { --bg:#0f1420; --panel:#182030; --panel2:#1e2940; --txt:#e6edf7; --mut:#8ca0bd;
+          --up:#26a69a; --dn:#ef5350; --acc:#4c8bf5; --warn:#f5a623; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:"Segoe UI",system-ui,sans-serif; font-size:14px; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 18px; background:var(--panel);
+           border-bottom:1px solid #24304a; position:sticky; top:0; z-index:10; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  .badge { background:#20304a; color:var(--mut); padding:3px 10px; border-radius:12px; font-size:12px; }
+  .badge.sim { background:#3a2a12; color:var(--warn); }
+  .wrap { display:grid; grid-template-columns: 1fr 380px; gap:14px; padding:14px; }
+  .panel { background:var(--panel); border:1px solid #24304a; border-radius:10px; padding:12px; }
+  #chart { height: 520px; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  button { background:var(--panel2); color:var(--txt); border:1px solid #2c3b5c; border-radius:8px;
+           padding:7px 12px; cursor:pointer; }
+  button:hover { background:#26344f; }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  input, select { background:var(--panel2); color:var(--txt); border:1px solid #2c3b5c;
+                  border-radius:8px; padding:6px 8px; }
+  .cards { display:grid; grid-template-columns: repeat(2,1fr); gap:8px; }
+  .card { background:var(--panel2); border-radius:8px; padding:10px; }
+  .card .k { color:var(--mut); font-size:12px; }
+  .card .v { font-size:18px; font-weight:600; margin-top:4px; }
+  .conf { color:var(--up); } .risk { color:var(--dn); } .warn { color:var(--warn); }
+  pre.explain { white-space:pre-wrap; background:#111826; border:1px solid #223052;
+                border-radius:8px; padding:10px; font-size:12.5px; line-height:1.45; max-height:260px; overflow:auto; }
+  ul { margin:6px 0 0 0; padding-left:18px; } li { margin:3px 0; }
+  .muted { color:var(--mut); }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px dashed #24304a; }
+  h3 { font-size:13px; margin:14px 0 6px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; }
+  .ok { color:var(--up); } .bad { color:var(--dn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>IQ Analyzer</h1>
+  <span class="badge sim">MODO SIMULAÇÃO — execução real desativada</span>
+  <span class="badge" id="status">carregando…</span>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <div class="controls">
+      <label class="muted">Ativo:</label>
+      <select id="source">
+        <option value="sample">Dados de exemplo (sample.csv)</option>
+      </select>
+      <span class="muted" id="dsInfo"></span>
+      <label class="muted">Payout:</label>
+      <input id="payout" type="number" value="80" min="10" max="99" style="width:70px" />%
+      <label class="muted">Expiração:</label>
+      <input id="expiry" type="number" value="1" min="1" max="20" style="width:60px" /> velas
+      <label class="muted"><input type="checkbox" id="showEma" checked /> EMAs</label>
+      <label class="muted"><input type="checkbox" id="showSr" checked /> S/R</label>
+      <button id="btnBt">Backtest</button>
+      <button id="btnLast" class="primary">Analisar último candle</button>
+    </div>
+    <div id="chart"></div>
+
+    <h3>Replay — clique no gráfico para analisar aquele instante</h3>
+    <div class="controls">
+      <span class="muted">Índice:</span>
+      <input id="idx" type="number" value="0" min="60" style="width:90px" />
+      <button id="btnGo">Analisar índice</button>
+      <span class="muted" id="replayInfo"></span>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3>Tendência e regime</h3>
+      <div id="trend" class="muted">—</div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h3>Análise do instante</h3>
+      <pre class="explain" id="explain">Clique em "Analisar último candle".</pre>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <h3>Backtest (fora de amostra parcial)</h3>
+      <div class="cards" id="btCards">
+        <div class="card"><div class="k">Operações</div><div class="v" id="btTotal">—</div></div>
+        <div class="card"><div class="k">Taxa de acerto</div><div class="v" id="btRate">—</div></div>
+        <div class="card"><div class="k">IC95%</div><div class="v" id="btCi" style="font-size:13px">—</div></div>
+        <div class="card"><div class="k">Ponto de equilíbrio</div><div class="v" id="btBe" style="font-size:13px">—</div></div>
+        <div class="card"><div class="k">Resultado líquido</div><div class="v" id="btNet">—</div></div>
+        <div class="card"><div class="k">Esperança/op</div><div class="v" id="btEv" style="font-size:13px">—</div></div>
+      </div>
+      <div id="btDetail" class="muted" style="margin-top:8px; font-size:12.5px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let chart, candleSeries, ema9S, ema21S, ema50S, priceLines = [], markersApi;
+let data = null;
+
+function api(u){ return fetch(u).then(r=>r.json()); }
+
+async function loadSeries(){
+  document.getElementById('status').textContent = 'carregando dados…';
+  data = await api('/api/series?source=' + document.getElementById('source').value);
+  document.getElementById('status').textContent = `${data.symbol} • ${data.n} velas • ${data.timeframe_s/60}min`;
+  document.getElementById('trend').textContent = data.trend + ' | volatilidade: ' + data.regime;
+  document.getElementById('idx').value = data.n - 1;
+  renderChart();
+}
+
+function renderChart(){
+  const el = document.getElementById('chart');
+  el.innerHTML = '';
+  chart = LightweightCharts.createChart(el, {
+    layout:{ background:{ color:'#0f1420' }, textColor:'#e6edf7' },
+    grid:{ vertLines:{ color:'#1b2438' }, horzLines:{ color:'#1b2438' } },
+    timeScale:{ timeVisible:true, secondsVisible:false },
+    crosshair:{ mode: LightweightCharts.CrosshairMode.Normal },
+    height: 520,
+  });
+  candleSeries = chart.addCandlestickSeries({
+    upColor:'#26a69a', downColor:'#ef5350', borderVisible:false,
+    wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+  });
+  candleSeries.setData(data.candles);
+  ema9S = chart.addLineSeries({ color:'#f5d76e', lineWidth:1, title:'EMA9' });
+  ema21S = chart.addLineSeries({ color:'#4c8bf5', lineWidth:1, title:'EMA21' });
+  ema50S = chart.addLineSeries({ color:'#b06ef5', lineWidth:1, title:'EMA50' });
+  setEma();
+  setSr();
+  chart.subscribeClick(param => {
+    if (param.time){
+      const idx = data.candles.findIndex(c => c.time === param.time);
+      if (idx >= 60){ document.getElementById('idx').value = idx; analyzeIndex(idx); }
+    }
+  });
+}
+
+function setEma(){
+  const on = document.getElementById('showEma').checked;
+  const z = (arr) => on ? arr.map((v,i)=> v==null?null:{time:data.candles[i].time, value:v}).filter(Boolean) : [];
+  ema9S.setData(z(data.ema.ema9));
+  ema21S.setData(z(data.ema.ema21));
+  ema50S.setData(z(data.ema.ema50));
+}
+function setSr(){
+  const on = document.getElementById('showSr').checked;
+  priceLines.forEach(p => candleSeries.removePriceLine(p)); priceLines = [];
+  if (!on) return;
+  data.levels.forEach(l => {
+    priceLines.push(candleSeries.createPriceLine({
+      price:l.price, color: l.kind==='resistance' ? '#ef5350' : '#26a69a',
+      lineWidth:1, lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible:true, title: `${l.kind} (${l.touches})`,
+    }));
+  });
+}
+
+async function analyzeIndex(i){
+  const payout = document.getElementById('payout').value / 100;
+  const r = await api(`/api/signal?i=${i}&payout=${payout}`);
+  document.getElementById('explain').textContent = r.explain;
+  document.getElementById('replayInfo').textContent = `instante ${i}`;
+  // marcador no gráfico
+  markersApi = [{ time: data.candles[i].time,
+    position: r.direction===1 ? 'belowBar' : 'aboveBar',
+    color: r.direction===1 ? '#26a69a' : '#ef5350',
+    shape: r.direction===1 ? 'arrowUp' : 'arrowDown',
+    text: r.status==='sinal_detectado' ? (r.direction===1?'CALL':'PUT') : 'aguardar' }];
+  candleSeries.setMarkers(markersApi);
+}
+
+async function backtest(){
+  const payout = document.getElementById('payout').value / 100;
+  const expiry = document.getElementById('expiry').value;
+  document.getElementById('status').textContent = 'rodando backtest…';
+  const r = await api(`/api/backtest?payout=${payout}&expiry=${expiry}`);
+  document.getElementById('btTotal').textContent = r.total;
+  document.getElementById('btRate').textContent = r.total ? (r.win_rate*100).toFixed(1)+'%' : '—';
+  document.getElementById('btCi').textContent = r.total ? `[${(r.ci_low*100).toFixed(1)}, ${(r.ci_high*100).toFixed(1)}]` : '—';
+  document.getElementById('btBe').textContent = (r.break_even_rate*100).toFixed(2)+'%';
+  document.getElementById('btNet').textContent = r.net_profit.toFixed(2);
+  document.getElementById('btEv').textContent = r.expectancy.toFixed(4);
+  document.getElementById('btDetail').textContent = r.summary.replace(/\n/g,' | ');
+  document.getElementById('status').textContent = 'pronto';
+}
+
+async function loadDatasets(){
+  try {
+    const r = await api('/api/datasets');
+    const sel = document.getElementById('source');
+    const seen = new Set([...sel.options].map(o => o.value));
+    r.datasets.forEach(d => {
+      if (seen.has(d.value)) return;
+      const o = document.createElement('option');
+      o.value = d.value; o.textContent = d.label;
+      sel.appendChild(o);
+    });
+    document.getElementById('dsInfo').textContent =
+      r.datasets.length ? `(${r.datasets.length} arquivo(s) em data/)` : '(sem CSVs em data/)';
+  } catch(e) { /* silencioso */ }
+}
+
+document.getElementById('source').onchange = loadSeries;
+document.getElementById('btnLast').onclick = () => analyzeIndex(data.n - 1);
+document.getElementById('btnGo').onclick = () => analyzeIndex(parseInt(document.getElementById('idx').value));
+document.getElementById('btnBt').onclick = backtest;
+document.getElementById('showEma').onchange = setEma;
+document.getElementById('showSr').onchange = setSr;
+
+loadDatasets().then(loadSeries);
+</script>
+</body>
+</html>
